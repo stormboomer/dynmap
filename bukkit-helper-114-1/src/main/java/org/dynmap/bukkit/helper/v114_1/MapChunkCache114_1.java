@@ -11,6 +11,7 @@ import org.bukkit.World;
 import org.dynmap.DynmapChunk;
 import org.dynmap.DynmapCore;
 import org.dynmap.bukkit.helper.AbstractMapChunkCache;
+import org.dynmap.bukkit.helper.BukkitVersionHelper;
 import org.dynmap.bukkit.helper.SnapshotCache;
 import org.dynmap.bukkit.helper.SnapshotCache.SnapshotRec;
 import org.dynmap.renderer.DynmapBlockState;
@@ -20,6 +21,7 @@ import org.dynmap.utils.VisibilityLimit;
 import net.minecraft.server.v1_14_R1.Chunk;
 import net.minecraft.server.v1_14_R1.ChunkCoordIntPair;
 import net.minecraft.server.v1_14_R1.ChunkRegionLoader;
+import net.minecraft.server.v1_14_R1.ChunkStatus;
 import net.minecraft.server.v1_14_R1.DataBits;
 import net.minecraft.server.v1_14_R1.NBTTagCompound;
 import net.minecraft.server.v1_14_R1.NBTTagList;
@@ -40,6 +42,7 @@ public class MapChunkCache114_1 extends AbstractMapChunkCache {
 	    private final Section[] section;
 	    private final int[] hmap; // Height map
 	    private final int[] biome;
+	    private final Object[] biomebase;
 	    private final long captureFulltime;
 	    private final int sectionCnt;
 	    private final long inhabitedTicks;
@@ -83,7 +86,7 @@ public class MapChunkCache114_1 extends AbstractMapChunkCache {
 	        public StdSection() {
 	            states = new DynmapBlockState[BLOCKS_PER_SECTION];
 	            Arrays.fill(states,  DynmapBlockState.AIR);
-	            skylight = emptyData;
+	            skylight = fullData;
 	            emitlight = emptyData;
 	        }
 	        @Override
@@ -118,6 +121,7 @@ public class MapChunkCache114_1 extends AbstractMapChunkCache {
 	        this.z = z;
 	        this.captureFulltime = captime;
 	        this.biome = new int[COLUMNS_PER_CHUNK];
+	        this.biomebase = new Object[COLUMNS_PER_CHUNK];
 	        this.sectionCnt = worldheight / 16;
 	        /* Allocate arrays indexed by section */
 	        this.section = new Section[this.sectionCnt];
@@ -206,29 +210,26 @@ public class MapChunkCache114_1 extends AbstractMapChunkCache {
 	            		}
 	            	}
 	            }
-	            cursect.emitlight = sec.getByteArray("BlockLight");
+	            if (sec.hasKey("BlockLight")) {
+	            	cursect.emitlight = sec.getByteArray("BlockLight");
+	            }
 	            if (sec.hasKey("SkyLight")) {
 	                cursect.skylight = sec.getByteArray("SkyLight");
 	            }
 	        }
 	        /* Get biome data */
 	        this.biome = new int[COLUMNS_PER_CHUNK];
+	        this.biomebase = new Object[COLUMNS_PER_CHUNK];
+	        Object[] bbl = BukkitVersionHelper.helper.getBiomeBaseList();
 	        if (nbt.hasKey("Biomes")) {
-	            byte[] b = nbt.getByteArray("Biomes");
-	            if (b != null) {
-	            	for (int i = 0; i < b.length; i++) {
-	            		int bv = 255 & b[i];
-	            		this.biome[i] = (bv == 255) ? 0 : bv;
-	            	}
-	            }
-	            else {	// Check JEI biomes
-	            	int[] bb = nbt.getIntArray("Biomes");
-	            	if (bb != null) {
-	                	for (int i = 0; i < bb.length; i++) {
-	                		int bv = bb[i];
-	                		this.biome[i] = (bv < 0) ? 0 : bv;
-	                	}
-	            	}
+            	int[] bb = nbt.getIntArray("Biomes");
+            	if (bb != null) {
+                	for (int i = 0; i < bb.length; i++) {
+                		int bv = bb[i];
+                		if (bv < 0) bv = 0;
+                		this.biome[i] = bv;
+                		this.biomebase[i] = bbl[bv];
+                	}
 	            }
 	        }
 	    }
@@ -279,12 +280,12 @@ public class MapChunkCache114_1 extends AbstractMapChunkCache {
 
 		@Override
 		public Biome getBiome(int x, int z) {
-	        return AbstractMapChunkCache.getBiomeByID(z << 4 | x);
+	        return AbstractMapChunkCache.getBiomeByID(biome[z << 4 | x]);
 		}
 
 		@Override
 		public Object[] getBiomeBaseFromSnapshot() {
-			return null;
+			return this.biomebase;
 		}
 	}
 	
@@ -299,6 +300,13 @@ public class MapChunkCache114_1 extends AbstractMapChunkCache {
         }
         if (nbt != null) {
             nbt = nbt.getCompound("Level");
+            if (nbt != null) {
+                String stat = nbt.getString("Status");
+				ChunkStatus cs = ChunkStatus.a(stat);
+                if ((stat == null) || (!cs.b(ChunkStatus.LIGHT))) {
+                    nbt = null;
+                }
+            }
         }
         return nbt;
     }
@@ -313,6 +321,19 @@ public class MapChunkCache114_1 extends AbstractMapChunkCache {
         }
         if (nbt != null) {
             nbt = nbt.getCompound("Level");
+            if (nbt != null) {
+            	String stat = nbt.getString("Status");
+            	if ((stat == null) || (stat.equals("full") == false)) {
+                    nbt = null;
+                    if ((stat == null) || stat.equals("") && DynmapCore.migrateChunks()) {
+                        Chunk c = cw.getHandle().getChunkAt(x, z);
+                        if (c != null) {
+                            nbt = fetchLoadedChunkNBT(w, x, z);
+                            cw.getHandle().unloadChunk(c);
+                        }
+                    }
+            	}
+            }
         }
         return nbt;
     }   

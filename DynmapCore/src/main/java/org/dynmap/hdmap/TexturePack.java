@@ -1598,7 +1598,7 @@ public class TexturePack {
         // Check mods to see if texture files defined there
         for (String modid : core.getServer().getModList()) {
             File f = core.getServer().getModContainerFile(modid);   // Get mod file
-            if (f.isFile()) {
+            if ((f != null) && f.isFile()) {
                 ZipFile zf = null;
                 in = null;
                 try {
@@ -1718,11 +1718,11 @@ public class TexturePack {
                     }
                 }
                 if (blank) {
-                    missing += blk.blockName;
+                    missing += blk.blockName + "\n";
                 }
             }
             if (missing.length() > 0) {
-                Log.warning("Blocks missing texture definition: " + missing);
+                Log.warning("Blocks missing texture definition:\n" + missing);
             }
         }
     }
@@ -2222,13 +2222,13 @@ public class TexturePack {
                                 if (stateids == null) {
                                     for (int sid = 0; sid < dblk.getStateCount(); sid++) {
                                         DynmapBlockState dblk2 = dblk.getState(sid);
-                                        HDBlockStateTextureMap.copyToStateIndex(dblk2, map);
+                                        HDBlockStateTextureMap.copyToStateIndex(dblk2, map, trans);
                                     }
                                 }
                                 else {
                                     for (int stateid = stateids.nextSetBit(0); stateid >= 0; stateid = stateids.nextSetBit(stateid+1)) {
                                         DynmapBlockState dblk2 = dblk.getState(stateid);
-                                        HDBlockStateTextureMap.copyToStateIndex(dblk2, map);
+                                        HDBlockStateTextureMap.copyToStateIndex(dblk2, map, trans);
                                     }
                                 }
                             }
@@ -2603,7 +2603,7 @@ public class TexturePack {
      * @param ps - perspective state
      * @param mapiter - map iterator
      * @param rslt - color result (returned with value)
-     * @param blkid - block ID
+     * @param blk - block state
      * @param lastblocktype - last block ID
      * @param ss - shader state
      */

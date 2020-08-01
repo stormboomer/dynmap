@@ -16,7 +16,7 @@ import java.util.concurrent.CancellationException;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 
-import org.bstats.Metrics;
+import org.bstats.bukkit.Metrics;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.Chunk;
@@ -28,6 +28,7 @@ import org.bukkit.World;
 import org.bukkit.block.Block;
 import org.bukkit.block.BlockFace;
 import org.bukkit.block.BlockState;
+import org.bukkit.block.Sign;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
@@ -88,8 +89,10 @@ import org.dynmap.bukkit.permissions.PEXPermissions;
 import org.dynmap.bukkit.permissions.PermBukkitPermissions;
 import org.dynmap.bukkit.permissions.GroupManagerPermissions;
 import org.dynmap.bukkit.permissions.PermissionProvider;
+import org.dynmap.bukkit.permissions.VaultPermissions;
 import org.dynmap.bukkit.permissions.bPermPermissions;
 import org.dynmap.bukkit.permissions.LuckPermsPermissions;
+import org.dynmap.bukkit.permissions.LuckPerms5Permissions;
 import org.dynmap.common.BiomeMap;
 import org.dynmap.common.DynmapCommandSender;
 import org.dynmap.common.DynmapPlayer;
@@ -98,9 +101,11 @@ import org.dynmap.common.DynmapListenerManager.EventType;
 import org.dynmap.hdmap.HDMap;
 import org.dynmap.markers.MarkerAPI;
 import org.dynmap.modsupport.ModSupportImpl;
+import org.dynmap.renderer.DynmapBlockState;
 import org.dynmap.utils.MapChunkCache;
 import org.dynmap.utils.Polygon;
 import org.dynmap.utils.VisibilityLimit;
+import skinsrestorer.bukkit.SkinsRestorer;
 
 public class DynmapPlugin extends JavaPlugin implements DynmapAPI {
     private DynmapCore core;
@@ -212,6 +217,22 @@ public class DynmapPlugin extends JavaPlugin implements DynmapAPI {
             }
             return -1;
         }
+		
+        @Override
+        public int isSignAt(String wname, int x, int y, int z) {
+            World w = getServer().getWorld(wname);
+            if((w != null) && w.isChunkLoaded(x >> 4, z >> 4)) {
+                Block b = w.getBlockAt(x, y, z);
+                BlockState s = b.getState();
+
+                if (s instanceof Sign) {
+                    return 1;
+                } else {
+                    return 0;
+                }
+            }
+            return -1;
+        }
 
         @Override
         public void scheduleServerTask(Runnable run, long delay) {
@@ -250,13 +271,16 @@ public class DynmapPlugin extends JavaPlugin implements DynmapAPI {
             else
                 return null;
         }
+        private boolean noservername = false;
         @Override
         public String getServerName() {
         	try {
-        		return getServer().getServerName();
+        		if (!noservername)
+        			return getServer().getServerName();
         	} catch (NoSuchMethodError x) {	// Missing in 1.14 spigot - no idea why removed...
-        		return getServer().getName();
+        		noservername = true;
         	}
+    		return getServer().getMotd();
         }
         @Override
         public boolean isPlayerBanned(String pid) {
@@ -330,7 +354,7 @@ public class DynmapPlugin extends JavaPlugin implements DynmapAPI {
                             Block b = evt.getBlock();
                             if(b == null) return;   /* Work around for stupid mods.... */
                             Location l = b.getLocation();
-                            core.listenerManager.processBlockEvent(EventType.BLOCK_BREAK, b.getType().getId(),
+                            core.listenerManager.processBlockEvent(EventType.BLOCK_BREAK, b.getType().name(),
                                 getWorld(l.getWorld()).getName(), l.getBlockX(), l.getBlockY(), l.getBlockZ());
                         }
                     }, DynmapPlugin.this);
@@ -345,7 +369,7 @@ public class DynmapPlugin extends JavaPlugin implements DynmapAPI {
                             DynmapPlayer dp = null;
                             Player p = evt.getPlayer();
                             if(p != null) dp = new BukkitPlayer(p);
-                            core.listenerManager.processSignChangeEvent(EventType.SIGN_CHANGE, b.getType().getId(),
+                            core.listenerManager.processSignChangeEvent(EventType.SIGN_CHANGE, b.getType().name(),
                                 getWorld(l.getWorld()).getName(), l.getBlockX(), l.getBlockY(), l.getBlockZ(), lines, dp);
                         }
                     }, DynmapPlugin.this);
@@ -696,6 +720,15 @@ public class DynmapPlugin extends JavaPlugin implements DynmapAPI {
         public UUID getUUID() {
         	return uuid;
         }
+        /**
+         * Send title and subtitle text (called from server thread)
+         */
+        @Override
+        public void sendTitleText(String title, String subtitle, int fadeInTicks, int stayTicks, int fadeOutTIcks) {
+        	if (player != null) {
+        		helper.sendTitleText(player, title, subtitle, fadeInTicks, stayTicks, fadeOutTIcks);
+        	}
+    	}
     }
     /* Handler for generic console command sender */
     public class BukkitCommandSender implements DynmapCommandSender {
@@ -746,6 +779,7 @@ public class DynmapPlugin extends JavaPlugin implements DynmapAPI {
         BiomeMap.loadWellKnownByVersion(mcver);
         /* Find array of biomes in biomebase */
         Object[] biomelist = helper.getBiomeBaseList();
+        Log.verboseinfo("biomelist length = " + biomelist.length);
         /* Loop through list, skipping well known biomes */
         for(int i = 0; i < biomelist.length; i++) {
             Object bb = biomelist[i];
@@ -753,6 +787,8 @@ public class DynmapPlugin extends JavaPlugin implements DynmapAPI {
                 float tmp = helper.getBiomeBaseTemperature(bb);
                 float hum = helper.getBiomeBaseHumidity(bb);
                 int watermult = helper.getBiomeBaseWaterMult(bb);
+                Log.verboseinfo("biome[" + i + "]: hum=" + hum + ", tmp=" + tmp + ", mult=" + Integer.toHexString(watermult));
+                
                 BiomeMap bmap = BiomeMap.byBiomeID(i);
                 if (bmap.isDefault()) {
                     String id =  helper.getBiomeBaseIDString(bb);
@@ -829,6 +865,7 @@ public class DynmapPlugin extends JavaPlugin implements DynmapAPI {
             perdefs.put(p.getName(), p.getDefault() == PermissionDefault.TRUE);
         }
         
+
         permissions = PEXPermissions.create(getServer(), "dynmap");
         if (permissions == null)
             permissions = bPermPermissions.create(getServer(), "dynmap", perdefs);
@@ -840,6 +877,10 @@ public class DynmapPlugin extends JavaPlugin implements DynmapAPI {
             permissions = GroupManagerPermissions.create(getServer(), "dynmap");
         if (permissions == null)
             permissions = LuckPermsPermissions.create(getServer(), "dynmap");
+        if (permissions == null)
+            permissions = LuckPerms5Permissions.create(getServer(), "dynmap");
+        if (permissions == null)
+            permissions = VaultPermissions.create(this, "dynmap");
         if (permissions == null)
             permissions = BukkitPermissions.create("dynmap", perdefs);
         if (permissions == null)
@@ -865,6 +906,23 @@ public class DynmapPlugin extends JavaPlugin implements DynmapAPI {
             this.setEnabled(false);
             return;
         }
+
+        /* Skins support via SkinsRestorer */
+        SkinsRestorerSkinUrlProvider skinUrlProvider = null;
+
+        if (core.configuration.getBoolean("skinsrestorer-integration", false)) {
+            SkinsRestorer skinsRestorer = (SkinsRestorer) getServer().getPluginManager().getPlugin("SkinsRestorer");
+
+            if (skinsRestorer == null) {
+                Log.warning("SkinsRestorer integration can't be enabled because SkinsRestorer not installed");
+            } else {
+                skinUrlProvider = new SkinsRestorerSkinUrlProvider(skinsRestorer);
+                Log.info("SkinsRestorer integration enabled");
+            }
+        }
+
+        core.setSkinUrlProvider(skinUrlProvider);
+
         /* See if we need to wait before enabling core */
         if(!readyToEnable()) {
             Listener pl = new Listener() {
@@ -1188,7 +1246,6 @@ public class DynmapPlugin extends JavaPlugin implements DynmapAPI {
         onblockfromto = core.isTrigger("blockfromto");
         onblockphysics = core.isTrigger("blockphysics");
         onpiston = core.isTrigger("pistonmoved");
-        onblockfade = core.isTrigger("blockfaded");
         onblockredstone = core.isTrigger("blockredstone");
         
         if(onplace) {
@@ -1579,43 +1636,46 @@ public class DynmapPlugin extends JavaPlugin implements DynmapAPI {
     private void initMetrics() {
         metrics = new Metrics(this);
 
-        metrics.addCustomChart(new Metrics.MultiLineChart("features_used") {
-            @Override
-            public HashMap<String, Integer> getValues(HashMap<String, Integer> hashMap) {
-                hashMap.put("internal_web_server", core.configuration.getBoolean("disable-webserver", false) ? 0 : 1);
-                hashMap.put("login_security", core.configuration.getBoolean("login-enabled", false) ? 1 : 0);
-                hashMap.put("player_info_protected", core.player_info_protected ? 1 : 0);
-                for (String mod : modsused)
-                    hashMap.put(mod + "_blocks", 1);
-                return hashMap;
-            }
-        });
+        metrics.addCustomChart(new Metrics.MultiLineChart("features_used", () -> {
+            Map<String, Integer> hashMap = new HashMap<>();
+            hashMap.put("internal_web_server", core.configuration.getBoolean("disable-webserver", false) ? 0 : 1);
+            hashMap.put("login_security", core.configuration.getBoolean("login-enabled", false) ? 1 : 0);
+            hashMap.put("player_info_protected", core.player_info_protected ? 1 : 0);
+            for (String mod : modsused)
+                hashMap.put(mod + "_blocks", 1);
+            return hashMap;
+        }));
 
-        metrics.addCustomChart(new Metrics.MultiLineChart("map_data") {
-            @Override
-            public HashMap<String, Integer> getValues(HashMap<String, Integer> hashMap) {
-                hashMap.put("worlds", core.mapManager != null ? core.mapManager.getWorlds().size() : 0);
-                int maps = 0, hdmaps = 0;
-                if (core.mapManager != null)
-                    for (DynmapWorld w : core.mapManager.getWorlds()) {
-                        for (MapType mt : w.maps)
-                            if (mt instanceof HDMap)
-                                ++hdmaps;
-                        maps += w.maps.size();
-                    }
-                hashMap.put("maps", maps);
-                hashMap.put("hd_maps", hdmaps);
-                return hashMap;
-            }
-        });
+        metrics.addCustomChart(new Metrics.MultiLineChart("map_data", () -> {
+            Map<String, Integer> hashMap = new HashMap<>();
+            hashMap.put("worlds", core.mapManager != null ? core.mapManager.getWorlds().size() : 0);
+            int maps = 0, hdmaps = 0;
+            if (core.mapManager != null)
+                for (DynmapWorld w : core.mapManager.getWorlds()) {
+                    for (MapType mt : w.maps)
+                        if (mt instanceof HDMap)
+                            ++hdmaps;
+                    maps += w.maps.size();
+                }
+            hashMap.put("maps", maps);
+            hashMap.put("hd_maps", hdmaps);
+            return hashMap;
+        }));
     }
     @Override
-    public void processSignChange(int blkid, String world, int x, int y, int z,
+    public void processSignChange(String material, String world, int x, int y, int z,
             String[] lines, String playerid) {
-        core.processSignChange(blkid, world, x, y, z, lines, playerid);
+        core.processSignChange(material, world, x, y, z, lines, playerid);
     }
     
     Polygon getWorldBorder(World w) {
         return helper.getWorldBorder(w);
+    }
+    
+    public static boolean migrateChunks() {
+        if ((plugin != null) && (plugin.core != null)) {
+            return plugin.core.migrateChunks();
+        }
+        return false;
     }
 }

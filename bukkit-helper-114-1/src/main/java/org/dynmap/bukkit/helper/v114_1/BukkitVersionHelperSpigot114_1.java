@@ -10,6 +10,7 @@ import org.bukkit.ChunkSnapshot;
 import org.bukkit.Location;
 import org.bukkit.World;
 import org.bukkit.WorldBorder;
+import org.bukkit.entity.Player;
 import org.dynmap.DynmapChunk;
 import org.dynmap.Log;
 import org.dynmap.bukkit.helper.BukkitVersionHelperCB;
@@ -168,9 +169,21 @@ public class BukkitVersionHelperSpigot114_1 extends BukkitVersionHelperCB {
 	 */
     @Override
 	public int getBiomeBaseWaterMult(Object bb) {
-		return ((BiomeBase)bb).n();
+		return ((BiomeBase)bb).m();
 	}
 
+    /** Get temperature from biomebase */
+    @Override
+    public float getBiomeBaseTemperature(Object bb) {
+    	return ((BiomeBase)bb).getTemperature();
+    }
+
+    /** Get humidity from biomebase */
+    @Override
+    public float getBiomeBaseHumidity(Object bb) {
+    	return ((BiomeBase)bb).getHumidity();    	
+    }
+    
     @Override
     public Polygon getWorldBorder(World world) {
         Polygon p = null;
@@ -189,5 +202,25 @@ public class BukkitVersionHelperSpigot114_1 extends BukkitVersionHelperCB {
         }
         return p;
     }
+	// Send title/subtitle to user
+    public void sendTitleText(Player p, String title, String subtitle, int fadeInTicks, int stayTicks, int fadeOutTIcks) {
+    	if (p != null) {
+    		p.sendTitle(title, subtitle, fadeInTicks, stayTicks, fadeOutTIcks);
+    	}
+    }
+	private String[] biomenames;
+	@Override
+	public String[] getBiomeNames() {
+    	if (biomenames == null) {
+    		biomenames = new String[1024];
+            for (int i = 0; i < 1024; i++) {
+            	BiomeBase bb = IRegistry.BIOME.fromId(i);
+            	if (bb != null) {
+            		biomenames[i] = bb.r();
+            	}
+            }
+        }
+        return biomenames;
+	}
 
 }
